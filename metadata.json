@@ -1,0 +1,5 @@
+{
+  "name": "PriceComp - Asistente de Precios",
+  "description": "Un asistente inteligente para comparar precios locales y online utilizando Google Search Grounding.",
+  "requestFramePermissions": []
+}
