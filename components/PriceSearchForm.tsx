@@ -1,26 +1,55 @@
 import React, { useState, useRef } from 'react';
-import { Search, MapPin, ShoppingBag, Loader2, Camera, X, Image as ImageIcon, DollarSign, SlidersHorizontal } from 'lucide-react';
+import { Search, MapPin, ShoppingBag, Loader2, Camera, X, Image as ImageIcon, DollarSign, SlidersHorizontal, Globe, Sparkles } from 'lucide-react';
 import { SearchParams } from '../types';
+import { identifyProductFromImage } from '../services/gemini';
 
 interface PriceSearchFormProps {
   onSearch: (params: SearchParams) => void;
   isLoading: boolean;
 }
 
+const CURRENCIES = [
+  { code: 'USD', name: 'Dólar Estadounidense ($)', country: 'EE.UU.' },
+  { code: 'EUR', name: 'Euro (€)', country: 'Unión Europea' },
+  { code: 'MXN', name: 'Peso Mexicano ($)', country: 'México' },
+  { code: 'COP', name: 'Peso Colombiano ($)', country: 'Colombia' },
+  { code: 'ARS', name: 'Peso Argentino ($)', country: 'Argentina' },
+  { code: 'CLP', name: 'Peso Chileno ($)', country: 'Chile' },
+  { code: 'PEN', name: 'Sol Peruano (S/)', country: 'Perú' },
+  { code: 'BRL', name: 'Real Brasileño (R$)', country: 'Brasil' },
+  { code: 'GBP', name: 'Libra Esterlina (£)', country: 'Reino Unido' },
+  { code: 'JPY', name: 'Yen Japonés (¥)', country: 'Japón' },
+  { code: 'CAD', name: 'Dólar Canadiense ($)', country: 'Canadá' },
+  { code: 'AUD', name: 'Dólar Australiano ($)', country: 'Australia' },
+  { code: 'CNY', name: 'Yuan Chino (¥)', country: 'China' },
+  { code: 'INR', name: 'Rupia India (₹)', country: 'India' },
+  { code: 'KRW', name: 'Won Surcoreano (₩)', country: 'Corea del Sur' },
+  { code: 'CHF', name: 'Franco Suizo (Fr)', country: 'Suiza' },
+  { code: 'UYU', name: 'Peso Uruguayo ($)', country: 'Uruguay' },
+  { code: 'DOP', name: 'Peso Dominicano ($)', country: 'Rep. Dominicana' },
+  { code: 'GTQ', name: 'Quetzal (Q)', country: 'Guatemala' },
+  { code: 'CRC', name: 'Colón Costarricense (₡)', country: 'Costa Rica' },
+  { code: 'BOB', name: 'Boliviano (Bs.)', country: 'Bolivia' },
+  { code: 'PYG', name: 'Guaraní (₲)', country: 'Paraguay' },
+  { code: 'VEF', name: 'Bolívar (Bs.)', country: 'Venezuela' },
+].sort((a, b) => a.code.localeCompare(b.code));
+
 export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLoading }) => {
   const [item, setItem] = useState('');
   const [location, setLocation] = useState('');
+  const [currency, setCurrency] = useState('USD');
   
   // Image state
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [imageMimeType, setImageMimeType] = useState<string | null>(null);
   const [imageBase64, setImageBase64] = useState<string | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   
   // Price Filter state
   const [showPriceFilter, setShowPriceFilter] = useState(false);
   const [minPrice, setMinPrice] = useState<number | ''>('');
   const [maxPrice, setMaxPrice] = useState<number>(1000);
-  const [priceScale, setPriceScale] = useState<number>(1000); // Determines the max value of the slider
+  const [priceScale, setPriceScale] = useState<number>(1000);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -28,15 +57,28 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const result = reader.result as string;
-        setSelectedImage(result); // This is the full data URL for preview
-        
-        // Extract base64 content and mime type for API
+        setSelectedImage(result);
         const matches = result.match(/^data:(.+);base64,(.+)$/);
         if (matches) {
-          setImageMimeType(matches[1]);
-          setImageBase64(matches[2]);
+          const mimeType = matches[1];
+          const base64 = matches[2];
+          setImageMimeType(mimeType);
+          setImageBase64(base64);
+
+          // Auto-analyze image to get product name
+          setIsAnalyzing(true);
+          try {
+            const detectedProduct = await identifyProductFromImage(base64, mimeType);
+            if (detectedProduct) {
+              setItem(detectedProduct.trim());
+            }
+          } catch (error) {
+            console.error("Failed to identify product", error);
+          } finally {
+            setIsAnalyzing(false);
+          }
         }
       };
       reader.readAsDataURL(file);
@@ -54,7 +96,6 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
 
   const handlePriceScaleChange = (scale: number) => {
     setPriceScale(scale);
-    // Adjust max price if it exceeds new scale
     if (maxPrice > scale) {
       setMaxPrice(scale);
     }
@@ -66,6 +107,7 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
       onSearch({ 
         item, 
         location,
+        currency,
         imageBase64: imageBase64 || undefined,
         imageMimeType: imageMimeType || undefined,
         minPrice: showPriceFilter && minPrice !== '' ? Number(minPrice) : undefined,
@@ -79,10 +121,10 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
       <div className="bg-gradient-to-r from-blue-600 to-indigo-700 p-6">
         <h2 className="text-2xl font-bold text-white flex items-center gap-2">
           <Search className="w-6 h-6" />
-          Comparador de Precios Hackathon
+          Comparador de Precios Global
         </h2>
         <p className="text-blue-100 mt-2 text-sm">
-          Edición Avanzada: Multimodal, Tendencias y Filtros Dinámicos.
+          Edición Avanzada: Multimodal, Tendencias y Conversión de Moneda.
         </p>
       </div>
       
@@ -95,17 +137,32 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
               ¿Qué estás buscando?
             </label>
             <div className="flex gap-2">
-              <input
-                id="item"
-                type="text"
-                value={item}
-                onChange={(e) => setItem(e.target.value)}
-                placeholder="Nombre del producto o descripción..."
-                className="flex-1 px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50 focus:bg-white outline-none"
-              />
+              <div className="relative flex-1">
+                <input
+                  id="item"
+                  type="text"
+                  value={item}
+                  onChange={(e) => setItem(e.target.value)}
+                  placeholder={isAnalyzing ? "Identificando producto..." : "Nombre del producto o descripción..."}
+                  disabled={isAnalyzing}
+                  className={`w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50 focus:bg-white outline-none ${isAnalyzing ? 'pl-10 text-gray-400' : ''}`}
+                />
+                {isAnalyzing && (
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-blue-600">
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  </div>
+                )}
+                {!isAnalyzing && item && selectedImage && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-yellow-500 animate-in zoom-in duration-300">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                )}
+              </div>
+
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
+                disabled={isAnalyzing}
                 className={`px-4 py-3 rounded-lg border transition-colors flex items-center gap-2 ${
                   selectedImage ? 'bg-blue-50 border-blue-200 text-blue-700' : 'border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-600'
                 }`}
@@ -122,15 +179,19 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
                 className="hidden"
               />
             </div>
+            {isAnalyzing && (
+              <p className="text-xs text-blue-600 animate-pulse">
+                Analizando imagen para detectar marca y modelo...
+              </p>
+            )}
           </div>
 
-          {/* Image Preview */}
           {selectedImage && (
             <div className="relative inline-block mt-2 animate-in fade-in zoom-in duration-300">
               <img 
                 src={selectedImage} 
                 alt="Product preview" 
-                className="h-24 w-24 object-cover rounded-lg border border-gray-200 shadow-sm"
+                className={`h-24 w-24 object-cover rounded-lg border border-gray-200 shadow-sm transition-opacity ${isAnalyzing ? 'opacity-50' : 'opacity-100'}`}
               />
               <button
                 type="button"
@@ -139,30 +200,49 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
               >
                 <X className="w-3 h-3" />
               </button>
-              <div className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-[10px] px-1 py-0.5 rounded-b-lg text-center truncate">
-                Imagen analizable
-              </div>
             </div>
           )}
 
-          {/* Section 2: Location */}
-          <div className="space-y-2">
-            <label htmlFor="location" className="block text-sm font-medium text-gray-700 flex items-center gap-1">
-              <MapPin className="w-4 h-4 text-gray-500" />
-              ¿Dónde estás?
-            </label>
-            <input
-              id="location"
-              type="text"
-              value={location}
-              onChange={(e) => setLocation(e.target.value)}
-              placeholder="Ej. Madrid, Ciudad de México, 28001..."
-              className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50 focus:bg-white outline-none"
-              required
-            />
+          {/* Section 2: Location & Currency */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="md:col-span-2 space-y-2">
+              <label htmlFor="location" className="block text-sm font-medium text-gray-700 flex items-center gap-1">
+                <MapPin className="w-4 h-4 text-gray-500" />
+                ¿Dónde estás?
+              </label>
+              <input
+                id="location"
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="Ej. Madrid, Ciudad de México..."
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50 focus:bg-white outline-none"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <label htmlFor="currency" className="block text-sm font-medium text-gray-700 flex items-center gap-1">
+                <Globe className="w-4 h-4 text-gray-500" />
+                Moneda
+              </label>
+              <select
+                id="currency"
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors bg-gray-50 focus:bg-white outline-none appearance-none cursor-pointer"
+                style={{backgroundImage: 'none'}} 
+              >
+                {CURRENCIES.map((curr) => (
+                  <option key={curr.code} value={curr.code}>
+                    {curr.code} - {curr.country}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
-          {/* Section 3: Price Filter (Collapsible/Optional) */}
+          {/* Section 3: Price Filter */}
           <div className="pt-2 border-t border-gray-100">
             <button
               type="button"
@@ -170,7 +250,7 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
               className="flex items-center gap-2 text-sm font-medium text-blue-600 hover:text-blue-800 transition-colors mb-4"
             >
               <SlidersHorizontal className="w-4 h-4" />
-              {showPriceFilter ? 'Ocultar Filtro de Precio' : 'Filtrar por Rango de Precio'}
+              {showPriceFilter ? 'Ocultar Filtro de Presupuesto' : 'Definir Presupuesto / Rango'}
             </button>
 
             {showPriceFilter && (
@@ -178,10 +258,9 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
                 <div className="flex justify-between items-center mb-2">
                   <label className="text-sm font-medium text-gray-700 flex items-center gap-1">
                     <DollarSign className="w-4 h-4 text-gray-500" />
-                    Rango de Presupuesto
+                    Rango ({currency})
                   </label>
                   
-                  {/* Scale Selector */}
                   <div className="flex gap-1">
                     {[100, 1000, 5000].map((scale) => (
                       <button
@@ -200,7 +279,6 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
                   </div>
                 </div>
 
-                {/* Slider UI */}
                 <div className="space-y-6">
                   <div className="relative pt-1">
                     <input
@@ -213,15 +291,15 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
                       className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
                     />
                     <div className="flex justify-between text-xs text-gray-500 mt-1">
-                      <span>0</span>
-                      <span className="font-semibold text-blue-600">Máx: {maxPrice}</span>
-                      <span>{priceScale}+</span>
+                      <span>0 {currency}</span>
+                      <span className="font-semibold text-blue-600">Máx: {maxPrice} {currency}</span>
+                      <span>{priceScale}+ {currency}</span>
                     </div>
                   </div>
 
                   <div className="flex gap-4">
                      <div className="flex-1">
-                      <label className="block text-xs text-gray-500 mb-1">Mínimo</label>
+                      <label className="block text-xs text-gray-500 mb-1">Mínimo ({currency})</label>
                       <input
                         type="number"
                         min="0"
@@ -232,7 +310,7 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
                       />
                     </div>
                     <div className="flex-1">
-                      <label className="block text-xs text-gray-500 mb-1">Máximo (Límite)</label>
+                      <label className="block text-xs text-gray-500 mb-1">Máximo ({currency})</label>
                       <input
                         type="number"
                         min="0"
@@ -250,7 +328,7 @@ export const PriceSearchForm: React.FC<PriceSearchFormProps> = ({ onSearch, isLo
 
         <button
           type="submit"
-          disabled={isLoading || (!item.trim() && !imageBase64) || !location.trim()}
+          disabled={isLoading || isAnalyzing || (!item.trim() && !imageBase64) || !location.trim()}
           className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-4 rounded-xl shadow-lg hover:shadow-xl transition-all disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center gap-2 transform active:scale-[0.99]"
         >
           {isLoading ? (

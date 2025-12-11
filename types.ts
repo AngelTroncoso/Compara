@@ -23,4 +23,5 @@ export interface SearchParams {
   imageMimeType?: string;
   minPrice?: number;
   maxPrice?: number;
+  currency?: string;
 }
